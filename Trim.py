@@ -1,7 +1,6 @@
 import pandas as pd
 import random
 
-# Read the CSV file
 df = pd.read_csv('data.csv')
 
 #df1 = pd.DataFrame([[1, 2, 3],[5,6,7]], columns=['count','name','type'])
@@ -9,7 +8,6 @@ df = pd.read_csv('data.csv')
 #print(result)
 #df = df.append(pd.Series(new, index=df.columns[:len(new)]), ignore_index=True)
 
-# Print the dataframe
 num_rows = df.shape[0]
 c = num_rows
 
