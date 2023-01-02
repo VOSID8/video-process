@@ -1,97 +1,134 @@
 import pandas as pd
 import random
-import csv
 import cv2
-df = pd.read_csv('data.csv')
-import ffmpeg
+import os
+import multiprocessing as mp
+from icecream import ic
+from tqdm import tqdm
 
-
-#df1 = pd.DataFrame([[1, 2, 3],[5,6,7]], columns=['count','name','type'])
-#result = pd.concat([df, df1], ignore_index=True, sort=False)
-#print(result)
-#df = df.append(pd.Series(new, index=df.columns[:len(new)]), ignore_index=True)
-
+random.seed(0)
+df = pd.read_csv("train.csv")
 num_rows = df.shape[0]
-c = num_rows
 
-for i in range(num_rows):
-    count = df['count'][i]
-    row = df.loc[i]
-    high_val = df.iloc[i, 3+(2*count)]
-    flag = 0
-    flag2=0
-    cap = cv2.VideoCapture('data_dst.mp4')
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    print("Frame rate of the video: {:.2f} fps".format(fps))
-
-    ffmpeg -i input.mp4 -ss 00:00:00 -t 00:00:10 -c:v copy -c:a copy output.mp4
+updated_csv = []
+ffmpeg_task_list = []
+input_video_path = "/mnt/workspace/UMD/CMSC733/CMSC733_project/LLSP/train"
+output_trimmed_video_path = "/mnt/workspace/UMD/CMSC733/CMSC733_project/LLSP/trimmed_train"  # This folder will contain only the cropped videos and will require merging the current video with the trimmed videos
+os.makedirs(output_trimmed_video_path, exist_ok=True)
 
 
+def trim_video(input_video_path, starting_time, ending_time, output_video_path):
+    os.system(
+        "ffmpeg -i {} -ss 00:{}:{} -to 00:{}:{} -c copy {}".format(
+            input_video_path,
+            starting_time[0],
+            starting_time[1],
+            ending_time[0],
+            ending_time[1],
+            output_video_path,
+        )
+    )
 
 
-    if(high_val > 1000):
-        while flag<3:
-            while flag2 == 0:
-                randn = random.randint(1, count)
-                x = random.randint(1, count - randn + 1)
-
-                list = [c, df.iloc[i, 1], f'{i}' + '_' + f'{flag}' + df.iloc[i, 2], x]
-                start = df.iloc[i, 2 * randn + 1]
-                end = df.iloc[i, 2 * randn + 2 * x]
-                for jj in range(1, 2 * x + 1):
-                    list.append(df.iloc[i, 2 * randn + jj])
-                if (int(end) - int(start) > 64):
-                    c += 1
-                    flag += 1
-                    flag2 = 1
-                    with open('data.csv', 'a', newline='') as csv_file:
-                        writer = csv.writer(csv_file)
-                        writer.writerow(list)
-                else:
-                    continue
-            flag2=0
-    elif(high_val > 500 and high_val < 1000):
-        while flag<2:
-            while flag2 == 0:
-                randn = random.randint(1, count)
-                x = random.randint(1, count - randn + 1)
-
-                list = [c, df.iloc[i, 1], f'{i}' + '_' + f'{flag}' + df.iloc[i, 2], x]
-                start = df.iloc[i, 2 * randn + 1]
-                end = df.iloc[i, 2 * randn + 2 * x]
-                for jj in range(1, 2 * x + 1):
-                    list.append(df.iloc[i, 2 * randn + jj])
-                if (int(end) - int(start) > 64):
-                    c += 1
-                    flag += 1
-                    flag2 = 1
-                    with open('data.csv', 'a', newline='') as csv_file:
-                        writer = csv.writer(csv_file)
-                        writer.writerow(list)
-                else:
-                    continue
-            flag2=0
-    else:
-        while flag2 == 0:
-            randn = random.randint(1, count)
-            x = random.randint(1, count - randn + 1)
-
-            list = [c, df.iloc[i, 1], f'{i}' + '_' + f'{flag}' + df.iloc[i, 2], x]
-            start = df.iloc[i, 2 * randn +1]
-            end = df.iloc[i, 2 * randn + 2 * x]
-            for jj in range(1,2*x+1):
-                list.append(df.iloc[i, 2 * randn + jj])
-            if (int(end) - int(start) > 64):
-                c += 1
-                flag2 = 1
-                with open('data.csv', 'a', newline='') as csv_file:
-                    writer = csv.writer(csv_file)
-                    writer.writerow(list)
-            else:
-                continue
+def frame_no_to_time(frame_no, fps):
+    seconds = frame_no / fps
+    minutes = seconds // 60
+    seconds = seconds % 60
+    return [int(minutes), int(seconds)]
 
 
+def crop_current_row(row, number_of_new_videos):
+    count = 0
+    updated_video_rows = []
+    ffmpeg_command_params = []
+    no_luck = 0
+    while count < number_of_new_videos:
+        ## Generate a random number between 1 and repetition count in column ['count'], idx = 3
+        new_video_rep_count = random.randint(1, int(row[3]))
+        ## Generate random starting index to start clipping between 0 and repetition count - new_video_rep_count
+        ## This index starts after column 4.
+        starting_index = random.randint(0, int(row[3]) - new_video_rep_count) * 2
+        end_index = starting_index + new_video_rep_count * 2
+        start_frame = int(row[starting_index + 4])
+        try:
+            time_part_of_row = [
+                int(i) - start_frame for i in row[starting_index + 4 : end_index + 4]
+            ]
+        except:
+            ic(
+                "Error in row",
+                row[2],
+                start_frame,
+                row[:50],
+                new_video_rep_count,
+                starting_index,
+                end_index,
+            )
+        if time_part_of_row[-1] - time_part_of_row[0] < 64:
+            no_luck += 1
+            if no_luck == 5:
+                ic("No luck, skipping this video", row[2])
+                break
+            continue
+
+        starting_time = frame_no_to_time(time_part_of_row[0], fps)
+        ending_time = frame_no_to_time(time_part_of_row[-1], fps)
+        ## Subtract the first element from all elements to make it start from 0
+        new_row = [
+            row[1],
+            row[2].replace(".mp4", "_{}.mp4".format(count)),
+            new_video_rep_count,
+        ] + time_part_of_row
+        updated_video_rows.append(new_row)
+        ffmpeg_command_params.append(
+            (
+                os.path.join(input_video_path, row[2]),
+                starting_time,
+                ending_time,
+                os.path.join(
+                    output_trimmed_video_path,
+                    row[2].replace(".mp4", "_{}.mp4".format(count)),
+                ),
+            )
+        )
+        count += 1
+    return updated_video_rows, ffmpeg_command_params
 
 
+def write_list_to_csv(list_of_rows, output_csv_path):
+    pd.DataFrame(list_of_rows).to_csv(output_csv_path, index=True)
 
 
+if __name__ == "__main__":
+    for i in tqdm(range(num_rows)):
+        count = df["count"][i]
+        row = df.loc[i].values.tolist()
+        updated_csv += [row[1:]]
+        cap = cv2.VideoCapture(os.path.join(input_video_path, row[2]))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_number_of_frames_video = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        if total_number_of_frames_video > 1000:
+            updated_csv_rows, ffmpeg_commands = crop_current_row(row, 5)
+            updated_csv += updated_csv_rows
+            ffmpeg_task_list += ffmpeg_commands
+
+        elif total_number_of_frames_video > 500 and total_number_of_frames_video < 1000:
+            updated_csv_rows, ffmpeg_commands = crop_current_row(row, 3)
+            updated_csv += updated_csv_rows
+            ffmpeg_task_list += ffmpeg_commands
+
+        elif total_number_of_frames_video > 200 and total_number_of_frames_video < 500:
+            updated_csv_rows, ffmpeg_commands = crop_current_row(row, 2)
+            updated_csv += updated_csv_rows
+            ffmpeg_task_list += ffmpeg_commands
+        elif total_number_of_frames_video < 200 and total_number_of_frames_video > 100:
+            updated_csv_rows, ffmpeg_commands = crop_current_row(row, 1)
+            updated_csv += updated_csv_rows
+            ffmpeg_task_list += ffmpeg_commands
+    write_list_to_csv(updated_csv, "updated_train.csv")
+    ic("wrote updated csv, starting ffmpeg tasks")
+    pool = mp.Pool(mp.cpu_count())
+    pool.starmap(trim_video, ffmpeg_task_list)
+    pool.close()
+    pool.join()
