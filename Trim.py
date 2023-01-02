@@ -28,17 +28,18 @@ def trim_video(input_video_path, starting_frame, duration, output_video_path):
         output_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, video_size
     )
     count = 0
+    video.set(cv2.CAP_PROP_POS_FRAMES, starting_frame)
     while video.isOpened():
         ret, frame = video.read()
         if ret:
-            if count < starting_frame:
-                count += 1
-                continue
-            if count >= starting_frame + duration:
+            if count > duration:
                 break
             count += 1
             out_video.write(frame)
+        else:
+            break
     out_video.release()
+    return
 
 
 def frame_no_to_time(frame_no, fps):
@@ -55,7 +56,7 @@ def crop_current_row(row, number_of_new_videos):
     no_luck = 0
     while count < number_of_new_videos:
         ## Generate a random number between 1 and repetition count in column ['count'], idx = 3
-        new_video_rep_count = random.randint(1, int(row[3]))
+        new_video_rep_count = random.randint(1, int(row[3]) - 1)
         ## Generate random starting index to start clipping between 0 and repetition count - new_video_rep_count
         ## This index starts after column 4.
         starting_index = random.randint(0, int(row[3]) - new_video_rep_count) * 2
@@ -118,7 +119,9 @@ if __name__ == "__main__":
         cap = cv2.VideoCapture(os.path.join(input_video_path, row[2]))
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_number_of_frames_video = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
+        cap.release()
+        if row[3] < 2:
+            continue
         if total_number_of_frames_video > 1000:
             updated_csv_rows, ffmpeg_commands = crop_current_row(row, 5)
             updated_csv += updated_csv_rows
@@ -139,7 +142,10 @@ if __name__ == "__main__":
             ffmpeg_task_list += ffmpeg_commands
     write_list_to_csv(updated_csv, "updated_train.csv")
     ic("wrote updated csv, starting ffmpeg tasks")
-    # for i in ffmpeg_task_list:
+    # for i in tqdm(ffmpeg_task_list):
+    #     if os.path.exists(i[3]):
+    #         continue
+    #     print(i)
     #     trim_video(*i)
     pool = mp.Pool(mp.cpu_count())
     pool.starmap(trim_video, ffmpeg_task_list)
