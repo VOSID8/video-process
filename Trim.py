@@ -17,17 +17,28 @@ output_trimmed_video_path = "/mnt/workspace/UMD/CMSC733/CMSC733_project/LLSP/tri
 os.makedirs(output_trimmed_video_path, exist_ok=True)
 
 
-def trim_video(input_video_path, starting_time, ending_time, output_video_path):
-    os.system(
-        "ffmpeg -i {} -ss 00:{}:{} -to 00:{}:{} -c copy {}".format(
-            input_video_path,
-            starting_time[0],
-            starting_time[1],
-            ending_time[0],
-            ending_time[1],
-            output_video_path,
-        )
+def trim_video(input_video_path, starting_frame, duration, output_video_path):
+    video = cv2.VideoCapture(input_video_path)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    video_size = (
+        int(video.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        int(video.get(cv2.CAP_PROP_FRAME_HEIGHT)),
     )
+    out_video = cv2.VideoWriter(
+        output_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, video_size
+    )
+    count = 0
+    while video.isOpened():
+        ret, frame = video.read()
+        if ret:
+            if count < starting_frame:
+                count += 1
+                continue
+            if count >= starting_frame + duration:
+                break
+            count += 1
+            out_video.write(frame)
+    out_video.release()
 
 
 def frame_no_to_time(frame_no, fps):
@@ -71,8 +82,8 @@ def crop_current_row(row, number_of_new_videos):
                 break
             continue
 
-        starting_time = frame_no_to_time(time_part_of_row[0], fps)
-        ending_time = frame_no_to_time(time_part_of_row[-1], fps)
+        starting_time = start_frame  # / fps
+        duration = time_part_of_row[-1]  # / fps
         ## Subtract the first element from all elements to make it start from 0
         new_row = [
             row[1],
@@ -84,7 +95,7 @@ def crop_current_row(row, number_of_new_videos):
             (
                 os.path.join(input_video_path, row[2]),
                 starting_time,
-                ending_time,
+                duration,
                 os.path.join(
                     output_trimmed_video_path,
                     row[2].replace(".mp4", "_{}.mp4".format(count)),
@@ -128,6 +139,8 @@ if __name__ == "__main__":
             ffmpeg_task_list += ffmpeg_commands
     write_list_to_csv(updated_csv, "updated_train.csv")
     ic("wrote updated csv, starting ffmpeg tasks")
+    # for i in ffmpeg_task_list:
+    #     trim_video(*i)
     pool = mp.Pool(mp.cpu_count())
     pool.starmap(trim_video, ffmpeg_task_list)
     pool.close()
